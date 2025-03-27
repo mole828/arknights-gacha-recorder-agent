@@ -86,15 +86,31 @@ suspend fun runTask(task: Task) {
     println(resp1.bodyAsText())
 }
 
+suspend fun mainFunc() {
+    val resp = ktorClient.get("$baseUrl/agent/task") {
+        parameter("agentKey", agentKey)
+    }
+    val body = resp.bodyAsText()
+    val task = Json.decodeFromString<Task>(body)
+    println(task)
+    runTask(task)
+}
+
+class Main
 
 fun main() {
     runBlocking {
-        val resp = ktorClient.get("$baseUrl/agent/task") {
-            parameter("agentKey", agentKey)
+        if (loopMode) {
+            while (true) {
+                try {
+                    mainFunc()
+                    delay(20.seconds)
+                } catch (e: Throwable) {
+                    e.printStackTrace()
+                }
+            }
+        } else {
+            mainFunc()
         }
-        val body = resp.bodyAsText()
-        val task = Json.decodeFromString<Task>(body)
-        println(task)
-        runTask(task)
     }
 }
