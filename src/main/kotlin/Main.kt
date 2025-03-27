@@ -20,6 +20,7 @@ import kotlin.time.Duration.Companion.seconds
 val loopMode = System.getenv()["LOOP_MODE"] ?.toBoolean() ?: false
 val baseUrl = System.getenv()["BASE_URL"] ?: "http://localhost:8080"
 val agentKey = System.getenv()["AGENT_KEY"] ?: "123"
+val taskDelay = System.getenv()["TASK_DELAY"]?.toInt() ?: 60
 
 
 val ktorClient = HttpClient(CIO)
@@ -119,10 +120,10 @@ fun main() {
             while (true) {
                 try {
                     mainFunc()
-                    delay(20.seconds)
                 } catch (e: Throwable) {
                     e.printStackTrace()
                 }
+                delay(taskDelay.seconds)
             }
         } else {
             mainFunc()
