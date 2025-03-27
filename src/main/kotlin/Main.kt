@@ -29,7 +29,7 @@ val gachaApi = ArkNights.GachaApi.default()
 
 @Serializable
 data class Task (
-    val id: String,
+    val uid: ArkNights.Uid,
     val hgToken: ArkNights.HgToken,
 )
 
@@ -37,12 +37,27 @@ data class Task (
 data class TaskResult (
     val uid: ArkNights.Uid,
     val hgToken: ArkNights.HgToken,
-    val gachas: List<ArkNights.GachaApi.GachaInfo.Companion.DefaultImpl>
+    val gachas: List<ArkNights.GachaApi.GachaInfo.Companion.DefaultImpl>,
+    val expired: Boolean? = false,
 )
 
 suspend fun runTask(task: Task) {
     val hgToken = task.hgToken
-    val appToken = api.grantAppToken(task.hgToken)
+    val appToken = try {
+        api.grantAppToken(task.hgToken)
+    } catch (e: ArkNights.HgTokenExpired) {
+        println("HgToken 已过期")
+        ktorClient.post("$baseUrl/agent/task") {
+            parameter("agentKey", agentKey)
+            setBody(Json.encodeToString(TaskResult(
+                uid = task.uid,
+                hgToken = task.hgToken,
+                gachas = emptyList(),
+                expired = true,
+            )))
+        }
+        return
+    }
     val bindingList = api.bindingList(appToken)
     val uid = bindingList.list.first().bindingList.first().uid
     val u8Token = api.u8TokenByUid(appToken, uid)

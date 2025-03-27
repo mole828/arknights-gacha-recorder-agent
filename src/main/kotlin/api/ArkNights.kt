@@ -16,20 +16,16 @@ import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.seconds
 
 interface ArkNights {
-    val logger: org.slf4j.Logger get() = LoggerFactory.getLogger(javaClass)
-
     interface BaseResponse {
         val status: Int
         val msg: String
         ;
         fun ok(): Boolean = status == 0
-        companion object {
-            @Serializable
-            data class DefaultImpl(
-                override val status: Int,
-                override val msg: String,
-            ): BaseResponse
-        }
+        @Serializable
+        data class DefaultImpl(
+            override val status: Int,
+            override val msg: String,
+        ): BaseResponse
     }
 
     @JvmInline
@@ -49,7 +45,6 @@ interface ArkNights {
             throw IllegalStateException("checkToken 失败, status: ${resp.status}")
         }
         val body = resp.bodyAsText()
-        logger.debug("checkToken 成功, body: $body")
         val re = json.decodeFromString<CheckTokenResponse>(body)
         return re.status == 0
     }
@@ -64,9 +59,35 @@ interface ArkNights {
     )
     @Serializable
     data class AppToken (val hgId: String, val token: String)
+
     @Serializable
     data class AppTokenResponse (val status: Int, val data: AppToken, val msg: String, val type: String)
-    suspend fun grantAppToken(hgToken: HgToken): AppToken
+
+    class HgTokenExpired : Error("HgToken 已过期")
+
+    suspend fun grantAppToken(hgToken: HgToken): AppToken {
+        val resp = ktorClient.post("https://as.hypergryph.com/user/oauth2/v2/grant") {
+            headers {
+                append(HttpHeaders.ContentType, ContentType.Application.Json)
+            }
+            setBody(json.encodeToString(GrantAppTokenPayload(
+                appCode = "be36d44aa36bfb5b",
+                token = hgToken.content,
+                type = 1,
+            )))
+        }
+        val body = resp.bodyAsText()
+
+        return try {
+            val base = json.decodeFromString<BaseResponse.DefaultImpl>(body)
+            if (base.status == 3) {
+                throw HgTokenExpired()
+            }
+            json.decodeFromString<AppTokenResponse>(body).data
+        } catch (e: Throwable) {
+            throw Error("body: $body", e)
+        }
+    }
 
     @Serializable
     data class AccountInfo(
@@ -125,25 +146,6 @@ interface ArkNights {
         fun cookie(map: Map<String, String>): String = map.map { (k, v) -> "$k=$v" }.joinToString("; ")
         fun default(): ArkNights {
             return object : ArkNights {
-                private val cacheDuration = 14.days
-
-                private suspend fun _grantAppToken(hgToken: HgToken): AppToken {
-                    val resp = ktorClient.post("https://as.hypergryph.com/user/oauth2/v2/grant") {
-                        headers {
-                            append(HttpHeaders.ContentType, ContentType.Application.Json)
-                        }
-                        setBody(json.encodeToString(GrantAppTokenPayload(
-                            appCode = "be36d44aa36bfb5b",
-                            token = hgToken.content,
-                            type = 1,
-                        )))
-                    }
-                    val body = resp.bodyAsText()
-                    return json.decodeFromString<AppTokenResponse>(body).data
-                }
-
-                override suspend fun grantAppToken(hgToken: HgToken): AppToken = _grantAppToken(hgToken)
-
                 private suspend fun _bindingList(appToken: AppToken): MultiAppBindingList {
                     val resp = ktorClient.get("https://binding-api-account-prod.hypergryph.com/account/binding/v1/binding_list") {
                         headers {
