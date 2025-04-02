@@ -78,14 +78,12 @@ interface ArkNights {
         }
         val body = resp.bodyAsText()
 
-        return try {
+        return run {
             val base = json.decodeFromString<BaseResponse.DefaultImpl>(body)
             if (base.status == 3) {
                 throw HgTokenExpired()
             }
             json.decodeFromString<AppTokenResponse>(body).data
-        } catch (e: Throwable) {
-            throw Error("body: $body", e)
         }
     }
 
