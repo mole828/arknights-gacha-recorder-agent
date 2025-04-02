@@ -5,7 +5,12 @@ ENV GRADLE_USER_HOME=/home/gradle/cache_home
 COPY build.gradle.* gradle.properties /home/gradle/app/
 COPY gradle /home/gradle/app/gradle
 WORKDIR /home/gradle/app
-RUN gradle buildFatJar dependencies --write-verification-metadata sha256
+RUN gradle --refresh-dependencies \
+    clean \
+    buildFatJar \
+    --write-verification-metadata sha256 \
+    --export-keys \
+    --no-daemon
 
 # Stage 2: Build Application
 FROM gradle:latest AS build
