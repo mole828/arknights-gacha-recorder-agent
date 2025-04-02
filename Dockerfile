@@ -10,7 +10,8 @@ RUN gradle --refresh-dependencies \
     buildFatJar \
     --write-verification-metadata sha256 \
     --export-keys \
-    --no-daemon
+    --no-daemon \
+    -i --stacktrace
 
 # Stage 2: Build Application
 FROM gradle:latest AS build
