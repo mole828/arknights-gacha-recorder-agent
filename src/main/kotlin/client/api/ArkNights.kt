@@ -1,9 +1,11 @@
 package api
 
+import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.*
 import io.ktor.client.plugins.cookies.*
 import io.ktor.client.request.*
+import io.ktor.client.request.cookie
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import kotlinx.coroutines.withTimeout
@@ -131,7 +133,7 @@ interface ArkNights {
 
 
     companion object {
-        val ktorClient = io.ktor.client.HttpClient(CIO) {
+        val ktorClient = HttpClient(CIO) {
             install(HttpTimeout) {
                 connectTimeoutMillis = 5.seconds.inWholeMilliseconds
                 requestTimeoutMillis = 10.seconds.inWholeMilliseconds
