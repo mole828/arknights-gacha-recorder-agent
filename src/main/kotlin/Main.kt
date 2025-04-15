@@ -22,6 +22,7 @@ import kotlinx.serialization.json.Json
 val baseUrl = System.getenv()["BASE_URL"] ?: "http://localhost:8080"
 val agentKey = System.getenv()["AGENT_KEY"] ?: "123"
 val serverHost = System.getenv()["SERVER_HOST"] ?: "localhost"
+val serverPort: Int? = System.getenv()["SERVER_PORT"]?.toInt()
 val serverPath = System.getenv()["SERVER_PATH"] ?: "/agent/ws"
 
 val ktorClient = HttpClient(CIO) {
@@ -147,7 +148,7 @@ fun main() {
             ktorClient.webSocket(
                 method = HttpMethod.Get,
                 host = serverHost,
-                port = 8080,
+                port = serverPort,
                 path = serverPath,
             ) {
                 println("ws begin")
