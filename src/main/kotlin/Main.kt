@@ -14,6 +14,7 @@ import io.ktor.http.HttpMethod
 import io.ktor.util.*
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.Clock
@@ -24,11 +25,10 @@ import kotlin.text.get
 import kotlin.time.Duration.Companion.seconds
 
 // 环境变量
-val loopMode = System.getenv()["LOOP_MODE"] ?.toBoolean() ?: false
 val baseUrl = System.getenv()["BASE_URL"] ?: "http://localhost:8080"
 val agentKey = System.getenv()["AGENT_KEY"] ?: "123"
-val taskDelay = System.getenv()["TASK_DELAY"]?.toInt() ?: 60
-
+val serverHost = System.getenv()["SERVER_HOST"] ?: "localhost"
+val serverPath = System.getenv()["SERVER_PATH"] ?: "/agent/ws"
 
 val ktorClient = HttpClient(CIO) {
     install(WebSockets)
@@ -145,44 +145,47 @@ fun main() {
 //    }
     runBlocking {
         try {
+            println("start $serverHost$serverPath")
             println("start")
             ktorClient.webSocket(
                 method = HttpMethod.Get,
-                host = "localhost",
-                port = 8080,
-                path = "agent/ws",
+                host = serverHost,
+                path = serverPath,
             ) {
                 println("ws begin")
                 suspend fun send(msg: MessageTemplate) {
                     send(Frame.Text(Json.encodeToString(msg)))
                 }
-                send(MessageTemplate.Auth(agentKey))
-                for (frame in incoming) {
-                    frame as? Frame.Text ?: continue
-                    val receivedText = frame.readText()
-                    val msg = Json.decodeFromString<MessageTemplate>(receivedText)
-                    println(msg)
-                    when(msg) {
-                        is MessageTemplate.Task -> {
-                            val waitInsert = try {
-                                runTaskReturn(Task(
+                val re = async {
+                    for (frame in incoming) {
+                        frame as? Frame.Text ?: continue
+                        val receivedText = frame.readText()
+                        val msg = Json.decodeFromString<MessageTemplate>(receivedText)
+                        println(msg)
+                        when(msg) {
+                            is MessageTemplate.Task -> {
+                                val waitInsert = try {
+                                    runTaskReturn(Task(
+                                        hgToken = msg.hgToken,
+                                        uid = msg.uid
+                                    ))
+                                } catch (e: ArkNights.HgTokenExpired) {
+                                    println("HgToken 已过期")
+                                    send(MessageTemplate.Expired(msg.hgToken))
+                                    continue
+                                }
+                                send(MessageTemplate.TaskResult(
+                                    uid = msg.uid,
+                                    result = waitInsert,
                                     hgToken = msg.hgToken,
-                                    uid = msg.uid
                                 ))
-                            } catch (e: ArkNights.HgTokenExpired) {
-                                println("HgToken 已过期")
-                                send(MessageTemplate.Expired(msg.hgToken))
-                                continue
                             }
-                            send(MessageTemplate.TaskResult(
-                                uid = msg.uid,
-                                result = waitInsert,
-                                hgToken = msg.hgToken,
-                            ))
+                            else -> {}
                         }
-                        else -> {}
                     }
                 }
+                send(MessageTemplate.Auth(agentKey))
+                re.await()
             }
             println("end")
         } catch (e: Throwable) {
