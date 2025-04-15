@@ -15,11 +15,22 @@ sealed interface MessageTemplate {
     data class Auth(val agentKey: String) : MessageTemplate
     @Serializable
     @SerialName("task")
-    data class Task(val hgToken: ArkNights.HgToken, val uid: Uid) : MessageTemplate
+    data class Task(val hgToken: ArkNights.HgToken, val uid: Uid?) : MessageTemplate
     @Serializable
     @SerialName("task_result")
     data class TaskResult(val result: List<ArkNights.GachaApi.GachaInfo.Companion.DefaultImpl>, val uid: Uid, val hgToken: ArkNights.HgToken) : MessageTemplate
+
     @Serializable
     @SerialName("expired")
     data class Expired(val hgToken: ArkNights.HgToken) : MessageTemplate
+    @Serializable
+    @SerialName("token_valid")
+    data class TokenValid(val uid: Uid, val hgToken: ArkNights.HgToken) : MessageTemplate
+    @Serializable
+    @SerialName("token_invalid")
+    data class TokenInvalid(val hgToken: ArkNights.HgToken, val msg: String) : MessageTemplate
+
+    @Serializable
+    @SerialName("user_info")
+    data class UserInfo(val info: ArkNights.AccountInfo, val hgToken: ArkNights.HgToken) : MessageTemplate
 }

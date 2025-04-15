@@ -65,7 +65,8 @@ interface ArkNights {
     @Serializable
     data class AppTokenResponse (val status: Int, val data: AppToken, val msg: String, val type: String)
 
-    class HgTokenExpired : Error("HgToken 已过期")
+    class HgTokenExpired(val hgToken: HgToken) : Error("HgToken 已过期")
+    class HgTokenInvalid(val hgToken: HgToken, val msg: String = "HgToken 无效") : Error("HgToken 无效")
 
     suspend fun grantAppToken(hgToken: HgToken): AppToken {
         val resp = ktorClient.post("https://as.hypergryph.com/user/oauth2/v2/grant") {
@@ -79,11 +80,14 @@ interface ArkNights {
             )))
         }
         val body = resp.bodyAsText()
+        if ("Error" in body) {
+            throw HgTokenInvalid(hgToken)
+        }
 
         return run {
             val base = json.decodeFromString<BaseResponse.DefaultImpl>(body)
             if (base.status == 3) {
-                throw HgTokenExpired()
+                throw HgTokenExpired(hgToken)
             }
             json.decodeFromString<AppTokenResponse>(body).data
         }

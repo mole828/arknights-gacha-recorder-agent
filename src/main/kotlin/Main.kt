@@ -1,28 +1,22 @@
 package com.example
 
 import api.ArkNights
+import api.ArkNights.Uid
 import com.example.protocol.MessageTemplate
 import io.ktor.client.*
-import io.ktor.client.call.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.websocket.WebSockets
-import io.ktor.client.plugins.websocket.pingInterval
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.HttpMethod
-import io.ktor.util.*
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
 import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
-import kotlinx.datetime.Clock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlin.text.get
-import kotlin.time.Duration.Companion.seconds
 
 // 环境变量
 val baseUrl = System.getenv()["BASE_URL"] ?: "http://localhost:8080"
@@ -39,23 +33,25 @@ val gachaApi = ArkNights.GachaApi.default()
 
 @Serializable
 data class Task (
-    val uid: ArkNights.Uid,
+    val uid: ArkNights.Uid?,
     val hgToken: ArkNights.HgToken,
 )
 
 @Serializable
 data class TaskResult (
-    val uid: ArkNights.Uid,
+    val uid: ArkNights.Uid?,
     val hgToken: ArkNights.HgToken,
     val gachas: List<ArkNights.GachaApi.GachaInfo.Companion.DefaultImpl>,
     val expired: Boolean? = false,
 )
 
-suspend fun runTaskReturn(task: Task): List<ArkNights.GachaApi.GachaInfo.Companion.DefaultImpl> {
+suspend fun runTaskReturn(task: Task, uidCallback: suspend (MessageTemplate.UserInfo) -> Unit={}): TaskResult {
     val hgToken = task.hgToken
     val appToken = api.grantAppToken(task.hgToken)
     val bindingList = api.bindingList(appToken)
-    val uid = bindingList.list.first().bindingList.first().uid
+    val accountInfo = bindingList.list.first().bindingList.first()
+    val uid = accountInfo.uid
+    uidCallback(MessageTemplate.UserInfo(accountInfo, hgToken))
     val u8Token = api.u8TokenByUid(appToken, uid)
 
     val loginCookie = api.login(u8Token)
@@ -85,11 +81,16 @@ suspend fun runTaskReturn(task: Task): List<ArkNights.GachaApi.GachaInfo.Compani
         }
 //            delay(10.seconds)
     }
-    return waitInsert
+    return TaskResult(
+        uid = uid,
+        hgToken = task.hgToken,
+        gachas = waitInsert,
+        expired = false,
+    )
 }
 
 suspend fun runTask(task: Task) {
-    val waitInsert = try {
+    val result = try {
         runTaskReturn(task)
     } catch (e: ArkNights.HgTokenExpired) {
         println("HgToken 已过期")
@@ -107,11 +108,7 @@ suspend fun runTask(task: Task) {
 
     val resp1 = ktorClient.post("$baseUrl/agent/task") {
         parameter("agentKey", agentKey)
-        setBody(Json.encodeToString(TaskResult(
-            uid = task.uid,
-            hgToken = task.hgToken,
-            gachas = waitInsert,
-        )))
+        setBody(Json.encodeToString(result))
     }
     println(resp1.bodyAsText())
 }
@@ -150,6 +147,7 @@ fun main() {
             ktorClient.webSocket(
                 method = HttpMethod.Get,
                 host = serverHost,
+                port = 8080,
                 path = serverPath,
             ) {
                 println("ws begin")
@@ -164,19 +162,28 @@ fun main() {
                         println(msg)
                         when(msg) {
                             is MessageTemplate.Task -> {
-                                val waitInsert = try {
+                                val taskResult = try {
                                     runTaskReturn(Task(
                                         hgToken = msg.hgToken,
                                         uid = msg.uid
-                                    ))
+                                    ), uidCallback = {
+                                        send(it)
+                                        send(MessageTemplate.TokenValid(it.info.uid, msg.hgToken))
+                                    })
                                 } catch (e: ArkNights.HgTokenExpired) {
                                     println("HgToken 已过期")
-                                    send(MessageTemplate.Expired(msg.hgToken))
+                                    send(MessageTemplate.Expired(e.hgToken))
+                                    continue
+                                } catch (e: ArkNights.HgTokenInvalid) {
+                                    println("HgToken 无效")
+                                    send(MessageTemplate.TokenInvalid(e.hgToken,  e.msg))
                                     continue
                                 }
+                                val uid = taskResult.uid
+                                requireNotNull(uid)
                                 send(MessageTemplate.TaskResult(
-                                    uid = msg.uid,
-                                    result = waitInsert,
+                                    uid = uid,
+                                    result = taskResult.gachas,
                                     hgToken = msg.hgToken,
                                 ))
                             }
