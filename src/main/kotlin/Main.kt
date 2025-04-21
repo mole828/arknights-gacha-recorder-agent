@@ -14,9 +14,15 @@ import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.datetime.Clock
+import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+
+import kotlin.math.log
 
 // 环境变量
 val baseUrl = System.getenv()["BASE_URL"] ?: "http://localhost:8080"
@@ -31,6 +37,40 @@ val ktorClient = HttpClient(CIO) {
 val api = ArkNights.default()
 val gachaApi = ArkNights.GachaApi.default()
 
+
+enum class LoggerLevel {
+    DEBUG,
+    INFO,
+    WARN,
+    ERROR
+}
+interface Logger {
+    fun debug(message: String)
+    fun info(message: String)
+    fun warn(message: String)
+    fun error(message: String)
+}
+
+val logger: Logger = object : Logger {
+    private fun basic(msg: String, level: LoggerLevel = LoggerLevel.DEBUG) {
+        val now = Clock.System.now()
+        val localDateTime = now.toLocalDateTime(TimeZone.currentSystemDefault())
+        println("$localDateTime $level: $msg")
+    }
+
+    override fun debug(message: String) {
+        this.basic(message, LoggerLevel.DEBUG)
+    }
+    override fun info(message: String) {
+        this.basic(message, LoggerLevel.INFO)
+    }
+    override fun warn(message: String) {
+        this.basic(message, LoggerLevel.WARN)
+    }
+    override fun error(message: String) {
+        this.basic(message, LoggerLevel.ERROR)
+    }
+}
 
 @Serializable
 data class Task (
@@ -94,7 +134,7 @@ suspend fun runTask(task: Task) {
     val result = try {
         runTaskReturn(task)
     } catch (e: ArkNights.HgTokenExpired) {
-        println("HgToken 已过期")
+        logger.info("HgToken 已过期")
         ktorClient.post("$baseUrl/agent/task") {
             parameter("agentKey", agentKey)
             setBody(Json.encodeToString(TaskResult(
@@ -111,7 +151,7 @@ suspend fun runTask(task: Task) {
         parameter("agentKey", agentKey)
         setBody(Json.encodeToString(result))
     }
-    println(resp1.bodyAsText())
+    logger.info(resp1.toString())
 }
 
 suspend fun mainFunc() {
@@ -120,7 +160,7 @@ suspend fun mainFunc() {
     }
     val body = resp.bodyAsText()
     val task = Json.decodeFromString<Task>(body)
-    println(task)
+    logger.info(task.toString())
     runTask(task)
 }
 
@@ -141,18 +181,24 @@ fun main() {
 //            mainFunc()
 //        }
 //    }
+    logger.info("main()")
     runBlocking {
         try {
-            println("start $serverHost$serverPath")
-            println("start")
+            logger.info("start $serverHost$serverPath")
             ktorClient.webSocket(
                 method = HttpMethod.Get,
                 host = serverHost,
                 port = serverPort,
                 path = serverPath,
             ) {
-                println("ws begin")
+                logger.info("ws begin")
                 suspend fun send(msg: MessageTemplate) {
+                    logger.info("send ${msg.let {
+                        val s = msg.toString()
+                        if(s.length > 100) {
+                            s.substring(0, 100)
+                        } else s
+                    }}")
                     send(Frame.Text(Json.encodeToString(msg)))
                 }
                 val re = async {
@@ -160,9 +206,14 @@ fun main() {
                         frame as? Frame.Text ?: continue
                         val receivedText = frame.readText()
                         val msg = Json.decodeFromString<MessageTemplate>(receivedText)
-                        println(msg)
+                        logger.info(msg.toString())
                         when(msg) {
                             is MessageTemplate.Task -> {
+                                val emptyResult = TaskResult(
+                                    uid = msg.uid,
+                                    hgToken = msg.hgToken,
+                                    gachas = emptyList(),
+                                )
                                 val taskResult = try {
                                     runTaskReturn(Task(
                                         hgToken = msg.hgToken,
@@ -172,13 +223,13 @@ fun main() {
                                         send(MessageTemplate.TokenValid(it.info.uid, msg.hgToken))
                                     })
                                 } catch (e: ArkNights.HgTokenExpired) {
-                                    println("HgToken 已过期")
+                                    logger.info("HgToken 已过期")
                                     send(MessageTemplate.Expired(e.hgToken))
-                                    continue
+                                    emptyResult
                                 } catch (e: ArkNights.HgTokenInvalid) {
-                                    println("HgToken 无效")
+                                    logger.info("HgToken 无效")
                                     send(MessageTemplate.TokenInvalid(e.hgToken,  e.msg))
-                                    continue
+                                    emptyResult
                                 }
                                 val uid = taskResult.uid
                                 requireNotNull(uid)
@@ -195,7 +246,7 @@ fun main() {
                 send(MessageTemplate.Auth(agentKey))
                 re.await()
             }
-            println("end")
+            logger.info("end")
         } catch (e: Throwable) {
             e.printStackTrace()
         }
