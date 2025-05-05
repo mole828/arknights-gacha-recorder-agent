@@ -11,6 +11,7 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.HttpMethod
 import io.ktor.websocket.Frame
+import io.ktor.websocket.pingInterval
 import io.ktor.websocket.readText
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
@@ -23,6 +24,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 import kotlin.math.log
+import kotlin.time.Duration.Companion.minutes
 
 // 环境变量
 val baseUrl = System.getenv()["BASE_URL"] ?: "http://localhost:8080"
@@ -191,6 +193,7 @@ fun main() {
                 port = serverPort,
                 path = serverPath,
             ) {
+                this.pingInterval = 1.minutes
                 logger.info("ws begin")
                 suspend fun send(msg: MessageTemplate) {
                     logger.info("send ${msg.let {
