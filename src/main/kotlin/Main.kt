@@ -14,6 +14,7 @@ import io.ktor.websocket.Frame
 import io.ktor.websocket.pingInterval
 import io.ktor.websocket.readText
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.Clock
 import kotlinx.datetime.LocalDateTime
@@ -193,7 +194,12 @@ fun main() {
                 port = serverPort,
                 path = serverPath,
             ) {
-                this.pingInterval = 1.minutes
+                async {
+                    while (true) {
+                        delay(1.minutes)
+                        this@webSocket.send(Frame.Ping("".toByteArray()))
+                    }
+                }
                 logger.info("ws begin")
                 suspend fun send(msg: MessageTemplate) {
                     logger.info("send ${msg.let {
